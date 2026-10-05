@@ -5,14 +5,18 @@ import os
 DB_PATH = 'database/maintenance.db'
 DATA_DIR = 'data/'
 
-def init_db():
+def init_db(force=False):
     os.makedirs('database', exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     
     # Check if tables already exist, skip loading if they do.
     cursor = conn.cursor()
     cursor.execute("SELECT count(name) FROM sqlite_master WHERE type='table' AND name='equipment'")
-    if cursor.fetchone()[0] == 1:
+    exists = cursor.fetchone()[0] == 1
+    cursor.close()
+    conn.commit()
+
+    if not force and exists:
         print("Database already initialized.")
         conn.close()
         return
@@ -30,6 +34,7 @@ def init_db():
         bookings_df.to_sql('bookings', conn, if_exists='replace', index=False)
         technicians_df.to_sql('technicians', conn, if_exists='replace', index=False)
         
+        cursor = conn.cursor()
         # Create audit_logs table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS audit_logs (

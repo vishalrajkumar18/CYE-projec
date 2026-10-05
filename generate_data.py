@@ -115,31 +115,49 @@ def generate_service_history(equipment_df):
     return df
 
 def generate_fault_codes(equipment_df):
-    fault_codes_list = ['F001 - Temperature Warning', 'F002 - Sensor Error', 'F003 - Power Error', 'F004 - Communication Error', 'F005 - Calibration Warning']
+    """
+    Generate historical fault records AND forward-looking predicted faults.
+
+    Historical faults (before BASE_DATE) are used for risk scoring and
+    data-cleaning tests.
+
+    Forward-looking faults (1-90 days after BASE_DATE) represent failures
+    that WILL occur during the planning horizon if maintenance is not performed.
+    High-risk devices (high utilisation / old age) have more predicted faults.
+    This enables the evaluation to measure actual pre-emption benefit.
+
+    All random calls use the documented seed (seed=42 set in __main__).
+    """
+    fault_codes_list = [
+        'F001 - Temperature Warning', 'F002 - Sensor Error',
+        'F003 - Power Error', 'F004 - Communication Error',
+        'F005 - Calibration Warning'
+    ]
     severities = ['Low', 'Medium', 'High', 'Critical']
-    
+
     data = []
     fault_id_counter = 1
     base_date = datetime(2026, 9, 1)
-    
+
     for _, row in equipment_df.iterrows():
         device_id = row['device_id']
-        
-        # Case 1: High Usage, No Faults -> DEV001
+
+        # ── Historical faults (before BASE_DATE) ──────────────────────────
+        # Case 1: High Usage, No Historical Faults -> DEV001
         if device_id == 'DEV001':
-            num_faults = 0
-        # Case 2: Low Usage, High Faults -> DEV002
+            num_hist = 0
+        # Case 2: Low Usage, High Historical Faults -> DEV002
         elif device_id == 'DEV002':
-            num_faults = 10
+            num_hist = 10
         else:
-            num_faults = random.randint(0, 4)
-            
-        for _ in range(num_faults):
+            num_hist = random.randint(0, 4)
+
+        for _ in range(num_hist):
             fault_date = base_date - timedelta(days=random.randint(1, 365))
             severity = random.choice(severities)
-            # Introduce bad severity for data cleaning
-            if fault_id_counter == 15: severity = 'Unknown'
-            
+            if fault_id_counter == 15:
+                severity = 'Unknown'  # Introduce bad severity for data cleaning
+
             data.append({
                 'fault_id': f"FLT{str(fault_id_counter).zfill(4)}",
                 'device_id': device_id,
@@ -150,7 +168,41 @@ def generate_fault_codes(equipment_df):
                 'resolution_hours': random.randint(1, 48) if random.random() > 0.2 else None
             })
             fault_id_counter += 1
-            
+
+        # ── Forward-looking faults (planning horizon: BASE_DATE + 1..90 days) ──
+        # High-utilisation or old devices get more predicted faults.
+        # DEV001 (high usage, no history) still gets predicted faults
+        # DEV002 (low usage, many history faults) gets fewer predicted faults
+        utilisation = row.get('utilisation_percent', 60)
+        age = row.get('age_years', 5)
+        criticality = row.get('criticality', 'Medium')
+
+        # Predicted fault count calibrated to utilisation + age
+        crit_factor = {'Low': 0, 'Medium': 1, 'High': 2, 'Critical': 3}.get(criticality, 1)
+        if device_id == 'DEV002':
+            num_predicted = 0  # Already heavily faulted historically
+        elif utilisation >= 80 or age >= 10 or crit_factor >= 2:
+            num_predicted = random.randint(1, 3)  # High-risk devices more likely to fail
+        else:
+            num_predicted = random.randint(0, 1)  # Low-risk devices occasionally fail
+
+        for _ in range(num_predicted):
+            # Fault will occur 1-90 days into the planning horizon
+            days_ahead = random.randint(1, 90)
+            fault_date = base_date + timedelta(days=days_ahead)
+            severity = random.choice(severities)
+
+            data.append({
+                'fault_id': f"FLT{str(fault_id_counter).zfill(4)}",
+                'device_id': device_id,
+                'fault_date': fault_date.strftime('%Y-%m-%d'),
+                'fault_code': random.choice(fault_codes_list),
+                'severity': severity,
+                'resolved': False,  # Predicted — not yet resolved
+                'resolution_hours': random.randint(4, 24)
+            })
+            fault_id_counter += 1
+
     df = pd.DataFrame(data)
     return df
 
@@ -238,3 +290,6 @@ if __name__ == "__main__":
     print("Generated technicians.csv")
     
     print("All synthetic datasets generated successfully.")
+    
+    from src.database import init_db
+    init_db(force=True)
