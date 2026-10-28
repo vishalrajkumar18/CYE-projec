@@ -40,7 +40,22 @@ PLANNED_HOURS_CALENDAR = 4            # fixed calendar window (baseline)
 
 
 def _parse_date(date_str):
-    """Return a datetime or None."""
+    """
+    Safely parse a date string into a datetime object.
+
+    Handles ISO formats, full timestamps, None, NaN, and corrupt input without
+    raising unhandled exceptions.
+
+    Parameters
+    ----------
+    date_str : str, optional
+        Date or timestamp string (e.g., '2026-09-01' or '2026-09-01 09:30:00').
+
+    Returns
+    -------
+    datetime or None
+        Parsed date truncated to day resolution, or None if invalid or missing.
+    """
     if pd.isna(date_str) or not date_str:
         return None
     try:
@@ -50,7 +65,22 @@ def _parse_date(date_str):
 
 
 def _calendar_maintenance_date(last_service_date_str, interval_days):
-    """Return the next calendar-scheduled maintenance date."""
+    """
+    Compute the scheduled maintenance date under the fixed calendar baseline.
+
+    Parameters
+    ----------
+    last_service_date_str : str, optional
+        Date of previous maintenance service.
+    interval_days : int
+        Fixed maintenance cadence in days (e.g., 90, 180, 365).
+
+    Returns
+    -------
+    datetime
+        Calculated next maintenance date. If last_service_date_str is missing,
+        falls back defensively to BASE_DATE + 1 day.
+    """
     last = _parse_date(last_service_date_str)
     if last is None:
         return BASE_DATE + timedelta(days=1)
@@ -239,7 +269,29 @@ def calculate_evaluation_metrics(equipment_df, fault_df, usage_based_schedule,
 
 
 def _availability(unplanned, planned, n_devices):
-    """Return availability percentage over the annual horizon."""
+    """
+    Compute overall equipment availability percentage over the annual horizon.
+
+    Availability Formula:
+    ---------------------
+    Total Operating Hours Capacity = n_devices * ANNUAL_AVAILABLE_HOURS (2,000 hrs/yr)
+    Total Downtime = unplanned_downtime + planned_downtime
+    Availability % = max(0.0, 100.0 - (Total Downtime / Total Capacity) * 100.0)
+
+    Parameters
+    ----------
+    unplanned : float
+        Cumulative unplanned breakdown hours.
+    planned : float
+        Cumulative planned preventive maintenance hours.
+    n_devices : int
+        Count of equipment units evaluated.
+
+    Returns
+    -------
+    float
+        Availability percentage bounded between 0.0% and 100.0%.
+    """
     total_hours = n_devices * ANNUAL_AVAILABLE_HOURS
     downtime = unplanned + planned
     if total_hours == 0:
